@@ -11,6 +11,14 @@ user_last_used = {}
 
 REGIONS = ["IND", "BR", "SG", "ID", "BD", "PK", "ME", "TH", "VN", "TW", "US", "EU"]
 
+# Multiple APIs - jo chalegi woh use hogi
+APIS = [
+    "https://freefire-virusteam.vercel.app/like?uid={uid}&region={region}",
+    "https://likes-api-tau.vercel.app/like?uid={uid}&server_name={region}",
+    "https://aditya-like-api.vercel.app/like?uid={uid}&server_name={region}",
+    "https://ff-like-api-kappa.vercel.app/like?uid={uid}&region={region}",
+]
+
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.reply_to(message,
@@ -39,10 +47,10 @@ def get_like(message):
             bot.reply_to(message, "❌ Galat format!\n\nUse karo:\n/like <region> <uid>\n\nExample:\n/like ind 123456789")
             return
 
-        region = parts[1].upper()
+        region = parts[1].lower()
         uid = parts[2].strip()
 
-        if region not in REGIONS:
+        if region.upper() not in REGIONS:
             bot.reply_to(message, f"❌ Galat region!\n\nUse karo: {', '.join([r.lower() for r in REGIONS])}")
             return
 
@@ -54,51 +62,56 @@ def get_like(message):
         bot.reply_to(message, "❌ Error: " + str(e))
         return
 
-    msg = bot.reply_to(message, "🚀 Real likes request bheja ja raha hai...\nWait karo (10-20 sec)...")
+    msg = bot.reply_to(message, "🚀 Real likes request bheja ja raha hai...\nMultiple APIs try kar raha hoon...\nWait karo (30-60 sec)...")
 
-    try:
-        api_url = f"https://like.nrobotz.com/like?uid={uid}&server={region.lower()}"
-        response = requests.get(api_url, timeout=30)
-        data = response.json()
+    success = False
+    last_error = ""
 
-        if response.status_code == 200 and data.get("status") == 1:
-            likes_before = data.get("LikesbeforeCommand", "N/A")
-            likes_after = data.get("LikesafterCommand", "N/A")
-            likes_given = data.get("LikesGivenByAPI", 0)
-            player_name = data.get("PlayerNickname", "Unknown")
+    for api_template in APIS:
+        try:
+            api_url = api_template.format(uid=uid, region=region)
+            response = requests.get(api_url, timeout=20)
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    # Different APIs have different response formats
+                    likes_given = data.get("LikesGivenByAPI") or data.get("likes_added") or data.get("LikesAdded") or 0
+                    player_name = data.get("PlayerNickname") or data.get("Nickname") or data.get("nickname") or "Unknown"
+                    likes_before = data.get("LikesbeforeCommand") or data.get("BeforeLikes") or data.get("before") or "N/A"
+                    likes_after = data.get("LikesafterCommand") or data.get("AfterLikes") or data.get("after") or "N/A"
+                    
+                    if likes_given and int(likes_given) > 0:
+                        bot.edit_message_text(
+                            chat_id=message.chat.id,
+                            message_id=msg.message_id,
+                            text=f"✅ Success!\n\n"
+                                 f"👤 Player: {player_name}\n"
+                                 f"🆔 UID: {uid}\n"
+                                 f"🌍 Region: {region.upper()}\n\n"
+                                 f"❤️ Likes Before: {likes_before}\n"
+                                 f"❤️ Likes After: {likes_after}\n"
+                                 f"➕ Added: {likes_given}\n\n"
+                                 f"📌 Game mein 5-10 min mein update hoga."
+                        )
+                        user_last_used[user_id] = time.time()
+                        success = True
+                        break
+                except Exception as e:
+                    last_error = str(e)
+                    continue
+        except Exception as e:
+            last_error = str(e)
+            continue
 
-            bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=msg.message_id,
-                text=f"✅ Success!\n\n"
-                     f"👤 Player: {player_name}\n"
-                     f"🆔 UID: {uid}\n"
-                     f"🌍 Region: {region}\n\n"
-                     f"❤️ Likes Before: {likes_before}\n"
-                     f"❤️ Likes After: {likes_after}\n"
-                     f"➕ Added: {likes_given}\n\n"
-                     f"📌 Game mein 5-10 min mein update hoga."
-            )
-            user_last_used[user_id] = time.time()
-
-        elif data.get("status") == 2:
-            bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=msg.message_id,
-                text="⚠️ Maximum likes already reached!\nIs UID ko aaj already likes mil chuke hain.\nKal try karo."
-            )
-        else:
-            bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=msg.message_id,
-                text=f"❌ Failed!\nResponse: {data}\n\nThodi der baad try karo."
-            )
-
-    except Exception as e:
+    if not success:
         bot.edit_message_text(
             chat_id=message.chat.id,
             message_id=msg.message_id,
-            text=f"❌ Error: {str(e)}\n\nAPI down ho sakti hai."
+            text=f"❌ Sabhi APIs down hain abhi.\n\n"
+                 f"Free APIs aksar band ho jati hain.\n"
+                 f"Thodi der baad ya kal try karo.\n\n"
+                 f"Last error: {last_error[:100]}"
         )
 
 print("Bot Started...")
